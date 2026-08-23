@@ -1,6 +1,7 @@
 package evidence
 
 import (
+	"sync"
 	"testing"
 
 	"task186-namemerge/internal/model"
@@ -82,4 +83,41 @@ func TestHasType(t *testing.T) {
 	if !HasType("n2", links) {
 		t.Error("n2 has specimen")
 	}
+}
+
+// TestFingerprintConcurrentStable 覆盖并发场景：多个 goroutine 同时计算同一发表证据指纹时，
+// 结果必须稳定一致，且不应发生数据竞争或 panic。
+// 用 -race 运行验证无竞争。
+func TestFingerprintConcurrentStable(t *testing.T) {
+	pub := model.Publication{Title: "Species  Plantarum ", Authors: " Linnaeus ", Journal: "Sp. Pl."}
+	sp := model.Specimen{Collector: " von Humboldt ", Number: " 1234a ", Institution: " K "}
+
+	wantPub := FingerprintPublication(pub)
+	wantSpec := FingerprintSpecimen(sp)
+
+	const goroutines = 64
+	const iterations = 200
+	var wg sync.WaitGroup
+	wg.Add(goroutines * 2)
+	for i := 0; i < goroutines; i++ {
+		go func() {
+			defer wg.Done()
+			for j := 0; j < iterations; j++ {
+				if got := FingerprintPublication(pub); got != wantPub {
+					t.Errorf("publication fingerprint drift: got %q want %q", got, wantPub)
+					return
+				}
+			}
+		}()
+		go func() {
+			defer wg.Done()
+			for j := 0; j < iterations; j++ {
+				if got := FingerprintSpecimen(sp); got != wantSpec {
+					t.Errorf("specimen fingerprint drift: got %q want %q", got, wantSpec)
+					return
+				}
+			}
+		}()
+	}
+	wg.Wait()
 }

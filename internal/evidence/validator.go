@@ -15,10 +15,11 @@ import (
 	"task186-namemerge/internal/model"
 )
 
-var sharedNormalization strings.Builder
-
 // FingerprintPublication 计算发表证据的幂等指纹。
 // 相同作者+标题+期刊（忽略大小写与空白差异）视为同一文献。
+//
+// 纯函数、无共享可变状态：多个并发请求同时计算同一发表证据指纹时
+// 结果稳定一致，不会发生数据竞争或 panic。
 func FingerprintPublication(p model.Publication) string {
 	raw := strings.Join([]string{
 		norm(p.Authors), norm(p.Title), norm(p.Journal),
@@ -27,6 +28,7 @@ func FingerprintPublication(p model.Publication) string {
 }
 
 // FingerprintSpecimen 计算模式标本的幂等指纹。
+// 纯函数、无共享可变状态，并发安全。
 func FingerprintSpecimen(s model.Specimen) string {
 	raw := strings.Join([]string{
 		norm(s.Collector), norm(s.Number), norm(s.Institution),
@@ -34,10 +36,13 @@ func FingerprintSpecimen(s model.Specimen) string {
 	return sha256Hex(raw)
 }
 
+// norm 对单段字符串做大小写与空白归一化：去首尾空白、转小写、
+// 将中间连续空白折叠为单个空格。
+//
+// 只读写局部变量与返回值，不依赖任何包级可变状态，因此可被
+// 多个 goroutine 并发调用而无需同步。
 func norm(s string) string {
-	sharedNormalization.Reset()
-	sharedNormalization.WriteString(strings.Join(strings.Fields(strings.ToLower(strings.TrimSpace(s))), " "))
-	return sharedNormalization.String()
+	return strings.Join(strings.Fields(strings.ToLower(strings.TrimSpace(s))), " ")
 }
 
 func sha256Hex(s string) string {
