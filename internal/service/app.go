@@ -212,7 +212,12 @@ func (a *App) shareSpecimen(aID, bID string) (bool, error) {
 		return false, err
 	}
 	if len(fa) == 0 {
-		panic("missing specimen evidence")
+		// 证明同型异名关系时，名称 A 缺少模式标本证据 →
+		// 返回可处理的领域错误，而不是触发运行时 panic。
+		return false, fmt.Errorf("%w: missing specimen evidence for %s", model.ErrInvalidArgument, aID)
+	}
+	if len(fb) == 0 {
+		return false, fmt.Errorf("%w: missing specimen evidence for %s", model.ErrInvalidArgument, bID)
 	}
 	set := map[string]bool{}
 	for _, f := range fb {
