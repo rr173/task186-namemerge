@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"task186-namemerge/internal/checklist"
+	"task186-namemerge/internal/cluster"
 	"task186-namemerge/internal/evidence"
 	"task186-namemerge/internal/model"
 	"task186-namemerge/internal/namerecord"
@@ -18,15 +19,15 @@ import (
 
 // App 聚合全部子服务，是 httpapi 的唯一依赖面。
 type App struct {
-	Names       *store.NameStore
+	Names        *store.NameStore
 	Publications *store.PublicationStore
-	Specimens   *store.SpecimenStore
-	Relations   *store.RelationStore
-	Rules       *store.RuleStore
-	Views       *store.ViewStore
-	Rulings     *store.RulingStore
-	Checklists  *store.ChecklistStore
-	DB          *store.DB
+	Specimens    *store.SpecimenStore
+	Relations    *store.RelationStore
+	Rules        *store.RuleStore
+	Views        *store.ViewStore
+	Rulings      *store.RulingStore
+	Checklists   *store.ChecklistStore
+	DB           *store.DB
 }
 
 // NewApp 构造应用服务。
@@ -191,7 +192,9 @@ func (a *App) ProveRelation(relationID string) error {
 	rels = append(rels, model.NameRelation{
 		FromNameID: from.ID, ToNameID: to.ID, Status: model.RelationStatusProven,
 	})
-	// 简化环检测：仅当目标与来源已在同一连通分量时拒绝（并查集语义）。
+	if cluster.DetectCycle(rels) {
+		return model.ErrCycleSynonym
+	}
 	if err := a.Relations.SetStatus(relationID, model.RelationStatusProven); err != nil {
 		return err
 	}
@@ -269,12 +272,12 @@ func (a *App) EvaluateView(viewID string) (*view.Evaluation, error) {
 		return nil, err
 	}
 	ev := &view.Evaluator{
-		Names:          names,
-		Publications:   pubs,
-		Relations:      rels,
+		Names:           names,
+		Publications:    pubs,
+		Relations:       rels,
 		SpecimenToNames: a.specimenToNames(names),
-		HasType:        a.hasTypeMap(names),
-		Rules:          *rule,
+		HasType:         a.hasTypeMap(names),
+		Rules:           *rule,
 	}
 	return ev.Evaluate(viewID)
 }
@@ -459,9 +462,9 @@ func (a *App) SelfCheck() map[string]any {
 	row := a.DB.SQL().QueryRow(`SELECT sqlite_version()`)
 	_ = row.Scan(&ver)
 	return map[string]any{
-		"status":        "ok",
+		"status":         "ok",
 		"sqlite_version": ver,
-		"checked_at":    time.Now().UTC().Format(time.RFC3339),
+		"checked_at":     time.Now().UTC().Format(time.RFC3339),
 	}
 }
 
