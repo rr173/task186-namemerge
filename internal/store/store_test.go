@@ -104,6 +104,48 @@ func TestSpecimenLink(t *testing.T) {
 	}
 }
 
+func TestSpecimenLinkKeepsExistingSpecimenOnEmptyRebind(t *testing.T) {
+	db := openTestDB(t)
+	ns := NewNameStore(db)
+	ps := NewPublicationStore(db)
+	ss := NewSpecimenStore(db)
+
+	_ = ns.Create(&model.NameRecord{ID: "n2", ScientificName: "A a L.", Genus: "A", SpecificEpithet: "a", OrthographicKey: "a a"})
+	_ = ps.Create(&model.Publication{ID: "p2", Title: "T", Authors: "X", Journal: "J", Fingerprint: "f2"})
+	_ = ss.Create(&model.Specimen{ID: "s2", Collector: "C", Number: "1", Institution: "K", Fingerprint: "sf2"})
+
+	// 第一次绑定：名称 + 发表 + 模式。
+	if _, err := ss.Link("n2", "p2", "s2"); err != nil {
+		t.Fatalf("link: %v", err)
+	}
+	// 第二次重复绑定（同一名称+发表）但未提供模式标本：不应清空已绑定模式。
+	link2, err := ss.Link("n2", "p2", "")
+	if err != nil {
+		t.Fatalf("relink empty: %v", err)
+	}
+	if link2.SpecimenID != "s2" {
+		t.Errorf("specimen id after empty rebind = %q, want %q (existing should be preserved)", link2.SpecimenID, "s2")
+	}
+	fps, err := ss.SpecimenByLink("n2")
+	if err != nil || len(fps) != 1 || fps[0] != "sf2" {
+		t.Errorf("specimen by link after empty rebind = %v, %v, want [sf2]", fps, err)
+	}
+	links, _ := ss.LinksByName("n2")
+	if !hasTypeLink(links, "n2") {
+		t.Errorf("has_type lost after empty rebind: links = %v", links)
+	}
+}
+
+// hasTypeLink 镜像 evidence.HasType 的判定，避免 store 包循环依赖 evidence。
+func hasTypeLink(links []model.NameLink, nameID string) bool {
+	for _, l := range links {
+		if l.NameID == nameID && l.SpecimenID != "" {
+			return true
+		}
+	}
+	return false
+}
+
 func TestRelationStatusFlow(t *testing.T) {
 	db := openTestDB(t)
 	rs := NewRelationStore(db)

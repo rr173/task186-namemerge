@@ -87,7 +87,8 @@ func (s *SpecimenStore) List() ([]model.Specimen, error) {
 }
 
 // Link 把名称与发表证据、模式标本绑定（幂等：同名称+发表重复绑定
-// 时若新提供模式标本则更新模式，保证"补齐模式"场景生效）。
+// 时仅当本次新提供模式标本才更新模式，保证"补齐模式"场景生效；
+// 若本次未提供模式标本，则保留既有模式证据，避免空请求清空已绑定模式）。
 func (s *SpecimenStore) Link(nameID, publicationID, specimenID string) (*model.NameLink, error) {
 	// 名称与发表证据必须存在。
 	_, err := s.db.sql.Exec(
@@ -96,12 +97,15 @@ func (s *SpecimenStore) Link(nameID, publicationID, specimenID string) (*model.N
 	)
 	if err != nil {
 		if isUniqueViolation(err) {
-			// 幂等：已绑定则更新模式标本（补齐模式场景）。
-			if _, uerr := s.db.sql.Exec(
-				`UPDATE name_links SET specimen_id=? WHERE name_id=? AND publication_id=?`,
-				specimenID, nameID, publicationID,
-			); uerr != nil {
-				return nil, uerr
+			// 幂等：已绑定。仅当本次新提供模式标本时才补齐模式，
+			// 否则保留既有模式证据（防止未带模式的重复请求清空已绑定模式）。
+			if specimenID != "" {
+				if _, uerr := s.db.sql.Exec(
+					`UPDATE name_links SET specimen_id=? WHERE name_id=? AND publication_id=?`,
+					specimenID, nameID, publicationID,
+				); uerr != nil {
+					return nil, uerr
+				}
 			}
 			row := s.db.sql.QueryRow(
 				`SELECT id, name_id, publication_id, specimen_id, created_at FROM name_links WHERE name_id=? AND publication_id=?`,
