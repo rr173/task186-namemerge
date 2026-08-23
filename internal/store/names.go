@@ -76,10 +76,19 @@ func (s *NameStore) List() ([]model.NameRecord, error) {
 	return out, rows.Err()
 }
 
-// Update 更新名称字段；已接受或非法状态禁止直接降级（状态机约束）。
+// Update 更新名称字段；遵循状态机约束：
+//   - accepted（接受名）只能由合法的分类观点流程（求值/发布）确定，
+//     名称更新接口不得把名称直接置为 accepted；
+//   - accepted / illegitimate 为终态，禁止直接降级或改判；
+//   - pending_review / legitimate / synonym_candidate 之间可由编辑校正流转。
+// 非法转移返回 ErrIllegalTransition。
 func (s *NameStore) Update(n *model.NameRecord) error {
-	if _, err := s.Get(n.ID); err != nil {
+	cur, err := s.Get(n.ID)
+	if err != nil {
 		return err
+	}
+	if !validNameTransition(cur.Status, n.Status) {
+		return model.ErrIllegalTransition
 	}
 	n.UpdatedAt = time.Now().UTC()
 	res, err := s.db.sql.Exec(
@@ -90,6 +99,33 @@ func (s *NameStore) Update(n *model.NameRecord) error {
 		return err
 	}
 	return assertAffected(res, 1)
+}
+
+// validNameTransition 校验名称状态机的合法转移，供名称更新接口 (Update) 约束。
+//
+// 接受名状态必须由合法的分类观点流程确定，故非接受态不得经更新接口置为
+// accepted；仅当名称已是 accepted 时允许原地不动（仅改学名等非状态字段）。
+// accepted 与 illegitimate 为终态，禁止经更新接口直接降级或改判。
+func validNameTransition(from, to model.NameStatus) bool {
+	// 接受名必须由观点流程确定：非接受态不得经更新接口伪造为 accepted。
+	if to == model.NameStatusAccepted && from != model.NameStatusAccepted {
+		return false
+	}
+	switch from {
+	case model.NameStatusAccepted:
+		// 终态：仅允许原地不动（非状态字段编辑），禁止降级。
+		return to == model.NameStatusAccepted
+	case model.NameStatusIllegitimate:
+		// 终态：仅允许原地不动，禁止改判。
+		return to == model.NameStatusIllegitimate
+	case model.NameStatusPendingReview, model.NameStatusLegitimate, model.NameStatusSynonymCandidate:
+		return to == model.NameStatusPendingReview ||
+			to == model.NameStatusLegitimate ||
+			to == model.NameStatusIllegitimate ||
+			to == model.NameStatusSynonymCandidate
+	default:
+		return false
+	}
 }
 
 // SetStatus 仅更新状态（供规则引擎写回）。
