@@ -14,6 +14,16 @@ func TestFingerprintStable(t *testing.T) {
 	if FingerprintPublication(a) != FingerprintPublication(b) {
 		t.Error("fingerprint should be case/space insensitive")
 	}
+	// 仅大小写与空白差异（含内部多空白、制表、换行）必须生成同一指纹。
+	c := model.Publication{Title: "species\t  plantarum\n", Authors: "LINNAEUS", Journal: "SP. PL."}
+	if FingerprintPublication(a) != FingerprintPublication(c) {
+		t.Error("fingerprint should ignore case and all whitespace differences")
+	}
+	// 作者字段同样适用大小写/空白归一（仅大小写与空白不同，内容一致）。
+	d := model.Publication{Title: "Species Plantarum", Authors: "  linnaeus ", Journal: "Sp. Pl."}
+	if FingerprintPublication(a) != FingerprintPublication(d) {
+		t.Error("authors field should be case/space normalized")
+	}
 }
 
 func TestFingerprintDistinct(t *testing.T) {

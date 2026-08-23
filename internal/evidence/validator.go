@@ -32,8 +32,16 @@ func FingerprintSpecimen(s model.Specimen) string {
 	return sha256Hex(raw)
 }
 
+// norm 归一化指纹输入字段：折叠内部空白并忽略大小写，
+// 使标题/作者/期刊仅有大小写或空白差异时仍生成同一指纹。
 func norm(s string) string {
-	return strings.TrimSpace(s)
+	return strings.ToLower(normSpace(s))
+}
+
+// normSpace 把连续空白折叠为单个空格并去除首尾空白。
+func normSpace(s string) string {
+	fields := strings.Fields(s)
+	return strings.Join(fields, " ")
 }
 
 func sha256Hex(s string) string {
