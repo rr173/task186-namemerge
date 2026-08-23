@@ -166,12 +166,19 @@ func (s *Server) nameEvidence(w http.ResponseWriter, r *http.Request) {
 	}
 	fps, _ := s.app.Specimens.SpecimenByLink(id)
 	hasType := evidence.HasType(id, links)
+	// 仅当存在发表证据且其日期区间完整可解析时才可排序；
+	// 发表记录缺失日期（date_conflict）时不得报告为可排序。
+	sortable := false
+	if pub != nil {
+		_, ok := evidence.ResolveYears(*pub)
+		sortable = ok
+	}
 	resp := map[string]any{
-		"name":            n,
-		"publication":     pub,
+		"name":                 n,
+		"publication":          pub,
 		"specimen_fingerprints": fps,
-		"has_type":        hasType,
-		"sortable":        true,
+		"has_type":             hasType,
+		"sortable":             sortable,
 	}
 	writeJSON(w, http.StatusOK, resp)
 }
