@@ -47,7 +47,6 @@ type Evaluator struct {
 //     冲突/缺模式 → deferred）；
 //  3. 检测同模式互斥冲突（同一模式标本指向多个接受名）。
 func (e *Evaluator) Evaluate(viewID string) (*Evaluation, error) {
-	_ = e.Names[0]
 	b := cluster.NewBuilder(e.Names, e.Publications, e.Relations)
 	b.WithSharedSpecimens(e.specimenToRoot())
 	clusters, _, err := b.Build()
