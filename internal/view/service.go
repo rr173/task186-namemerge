@@ -12,32 +12,33 @@ import (
 
 	"task186-namemerge/internal/cluster"
 	"task186-namemerge/internal/model"
+	"task186-namemerge/internal/rules"
 )
 
 // Evaluation 是观点求值的结果：簇、冲突、逐名称角色。
 type Evaluation struct {
-	ViewID   string                 `json:"view_id"`
-	Clusters []cluster.Cluster      `json:"clusters"`
-	Conflicts []Conflict            `json:"conflicts"`
-	Roles    map[string]string      `json:"roles"` // nameID → accepted / synonym / deferred
-	EvaluatedAt time.Time           `json:"evaluated_at"`
+	ViewID      string            `json:"view_id"`
+	Clusters    []cluster.Cluster `json:"clusters"`
+	Conflicts   []Conflict        `json:"conflicts"`
+	Roles       map[string]string `json:"roles"` // nameID → accepted / synonym / deferred
+	EvaluatedAt time.Time         `json:"evaluated_at"`
 }
 
 // Conflict 描述一个待裁决冲突。
 type Conflict struct {
-	Kind       string   `json:"kind"`        // date_unsortable / specimen_conflict / homonym
-	MemberIDs  []string `json:"member_ids"`
-	Basis      string   `json:"basis"`
+	Kind      string   `json:"kind"` // date_unsortable / specimen_conflict / homonym
+	MemberIDs []string `json:"member_ids"`
+	Basis     string   `json:"basis"`
 }
 
 // Evaluator 汇集求值所需的领域数据。
 type Evaluator struct {
-	Names      []model.NameRecord
-	Publications map[string]model.Publication // nameID → publication
-	Relations  []model.NameRelation
+	Names           []model.NameRecord
+	Publications    map[string]model.Publication // nameID → publication
+	Relations       []model.NameRelation
 	SpecimenToNames map[string][]string // specimen fp → 关联的名称 ID 列表
-	HasType    map[string]bool             // nameID → 是否已绑定模式标本
-	Rules      model.RuleVersion
+	HasType         map[string]bool     // nameID → 是否已绑定模式标本
+	Rules           model.RuleVersion
 }
 
 // Evaluate 执行求值：
@@ -52,12 +53,20 @@ func (e *Evaluator) Evaluate(viewID string) (*Evaluation, error) {
 	if err != nil {
 		return nil, err
 	}
+	judgments := make(map[string]rules.Judgment, len(e.Names))
+	for _, n := range e.Names {
+		pub, ok := e.Publications[n.ID]
+		if !ok {
+			continue
+		}
+		judgments[n.ID] = rules.Evaluate(n, pub, e.HasType[n.ID], false)
+	}
 
 	ev := &Evaluation{
-		ViewID:     viewID,
-		Clusters:   clusters,
-		Conflicts:  make([]Conflict, 0),
-		Roles:      make(map[string]string, len(e.Names)),
+		ViewID:      viewID,
+		Clusters:    clusters,
+		Conflicts:   make([]Conflict, 0),
+		Roles:       make(map[string]string, len(e.Names)),
 		EvaluatedAt: time.Now().UTC(),
 	}
 	// 日期不可排序冲突。
@@ -77,6 +86,14 @@ func (e *Evaluator) Evaluate(viewID string) (*Evaluation, error) {
 			continue
 		}
 		for _, m := range c.Members {
+			if judgment, ok := judgments[m]; ok && judgment.Conflicting {
+				ev.Roles[m] = "deferred"
+				ev.Conflicts = append(ev.Conflicts, Conflict{
+					Kind: "evidence_invalid", MemberIDs: []string{m},
+					Basis: "nomenclatural evidence is not currently valid",
+				})
+				continue
+			}
 			// 缺少模式标本 → 证据不足，待裁决（deferred + missing_type 冲突）。
 			if !e.HasType[m] {
 				ev.Roles[m] = "deferred"
@@ -154,10 +171,10 @@ func ChecklistSnapshot(viewID, ruleVersion string, ev *Evaluation, nameByID map[
 	for nameID, role := range ev.Roles {
 		n := nameByID[nameID]
 		item := model.ChecklistItem{
-			ChecklistID:   viewID + "-snapshot",
-			NameID:        nameID,
+			ChecklistID:    viewID + "-snapshot",
+			NameID:         nameID,
 			ScientificName: n.ScientificName,
-			Role:          role,
+			Role:           role,
 		}
 		if role == "synonym" {
 			item.AcceptedNameID = acceptedFor(nameID, ev)
