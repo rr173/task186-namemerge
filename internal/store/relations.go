@@ -90,11 +90,15 @@ func (s *RelationStore) SetStatus(id string, status model.RelationStatus) error 
 }
 
 // Pair 查两个名称之间已存在的关系边（任一方向）。
+// 学名关系是无向对：a→b 与 b→a 视为同一对名称关系，
+// 因此两个方向都要匹配，否则反向重复提交会被漏判为非重复。
 func (s *RelationStore) Pair(a, b string) (*model.NameRelation, error) {
 	row := s.db.sql.QueryRow(
 		`SELECT id, from_name_id, to_name_id, kind, basis, status, view_id, created_at, updated_at
-		 FROM relations WHERE from_name_id=? AND to_name_id=? LIMIT 1`,
-		a, b)
+		 FROM relations
+		 WHERE (from_name_id=? AND to_name_id=?) OR (from_name_id=? AND to_name_id=?)
+		 LIMIT 1`,
+		a, b, b, a)
 	var r model.NameRelation
 	var created, updated string
 	err := row.Scan(&r.ID, &r.FromNameID, &r.ToNameID, &r.Kind, &r.Basis, &r.Status, &r.ViewID, &created, &updated)
