@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"task186-namemerge/internal/checklist"
+	"task186-namemerge/internal/cluster"
 	"task186-namemerge/internal/evidence"
 	"task186-namemerge/internal/model"
 	"task186-namemerge/internal/namerecord"
@@ -191,6 +192,9 @@ func (a *App) ProveRelation(relationID string) error {
 	rels = append(rels, model.NameRelation{
 		FromNameID: from.ID, ToNameID: to.ID, Status: model.RelationStatusProven,
 	})
+	if cluster.DetectCycle(rels) {
+		return model.ErrCycleSynonym
+	}
 	if err := a.Relations.SetStatus(relationID, model.RelationStatusProven); err != nil {
 		return err
 	}
